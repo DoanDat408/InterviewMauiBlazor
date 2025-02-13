@@ -1,0 +1,20 @@
+﻿@inherits LayoutComponentBase
+
+<div class="main-layout">
+    <header class="bg-primary text-white p-3">
+        <div class="container">
+        </div>
+    </header>
+
+    <NavMenu />
+
+    <div class="container my-4">
+        @Body
+    </div>
+
+    <footer class="bg-light text-center p-3 mt-auto">
+        <div class="container">
+            <small>&copy; @DateTime.Now.Year - InterviewMauiBlazor. All rights reserved.</small>
+        </div>
+    </footer>
+</div>

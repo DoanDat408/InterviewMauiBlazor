@@ -1,0 +1,86 @@
+﻿@page "/report"
+@using InterviewMauiBlazor.Services
+@inject ITransactionService TransactionService
+@inject IJSRuntime JSRuntime
+
+<h3>Transaction Report</h3>
+
+<div class="row mb-3">
+    <div class="col-md-4">
+        <label>Start Date:</label>
+        <InputDate TValue="DateTime" @bind-Value="startDate" class="form-control" />
+    </div>
+    <div class="col-md-4">
+        <label>End Date:</label>
+        <InputDate TValue="DateTime" @bind-Value="endDate" class="form-control" />
+    </div>
+    <div class="col-md-4 d-flex align-items-end">
+        <button class="btn btn-primary" @onclick="GenerateReport">Generate Report</button>
+    </div>
+</div>
+
+@if (reportData != null)
+{
+    <div class="mb-4">
+        <h4>Summary</h4>
+        <p><strong>Total Transactions:</strong> @reportData.TotalTransactions</p>
+        <p><strong>Total Value:</strong> @reportData.TotalValue:C</p>
+    </div>
+
+    <div class="mb-4">
+        <h4>Transactions by Day</h4>
+        <canvas id="transactionsChart" width="400" height="200"></canvas>
+    </div>
+
+    <div class="mb-4">
+        <h4>Top Products</h4>
+        <table class="table table-bordered">
+            <thead>
+                <tr>
+                    <th>Product Name</th>
+                    <th>Count</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var item in reportData.TopProducts)
+                {
+                    <tr>
+                        <td>@item.ProductName</td>
+                        <td>@item.Count</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private DateTime startDate = DateTime.Today.AddDays(-7);
+    private DateTime endDate = DateTime.Today;
+    private ReportData reportData;
+
+    private string[] chartLabels;
+    private int[] chartData;
+    private bool shouldRenderChart = false;
+
+    private async Task GenerateReport()
+    {
+        reportData = await TransactionService.GenerateReportAsync(startDate, endDate);
+
+        var sortedData = reportData.TransactionsByDay.OrderBy(kvp => kvp.Key).ToList();
+        chartLabels = sortedData.Select(kvp => kvp.Key.ToString("dd-MM-yyyy")).ToArray();
+        chartData = sortedData.Select(kvp => kvp.Value).ToArray();
+
+        shouldRenderChart = true;
+        StateHasChanged();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (shouldRenderChart)
+        {
+            shouldRenderChart = false;
+            await JSRuntime.InvokeVoidAsync("renderChart", "transactionsChart", chartLabels, chartData);
+        }
+    }
+}

@@ -1,0 +1,242 @@
+﻿@page "/transactionform"
+@page "/transactionform/{OrderId:int}/{ProductId:int}"
+@inject ITransactionService TransactionService
+@inject IOrderService OrderService
+@inject IProductService ProductService
+@inject NavigationManager NavigationManager
+@using InterviewMauiBlazor.Database.Entities
+@using InterviewMauiBlazor.ViewModels
+@using System.Globalization
+@using InterviewMauiBlazor.Services
+@using Microsoft.AspNetCore.Components
+
+<h3>@(editingMode ? "Edit Transaction" : "Add Transaction")</h3>
+
+<EditForm Model="transactionViewModel" OnValidSubmit="HandleValidSubmit" OnInvalidSubmit="HandleInvalidSubmit">
+    <DataAnnotationsValidator />
+    <ValidationSummary />
+
+    <div class="mb-3">
+        <label>Product</label>
+        <select class="form-control" @bind="SelectedProductId">
+            <option value="">Select Product</option>
+            @if (products != null)
+            {
+                foreach (var product in products)
+                {
+                    <option value="@product.Id">@product.Name</option>
+                }
+            }
+        </select>
+    </div>
+
+    <div class="mb-3">
+        <label>Quantity</label>
+        <input type="number" class="form-control" value="@Quantity" @oninput="OnQuantityInput" />
+    </div>
+
+    <div class="mb-3">
+        <label>Total Price</label>
+        <input class="form-control" value="@transactionViewModel.TotalPrice.ToString()" readonly />
+    </div>
+
+    <div class="mb-3">
+        <label>Buyer</label>
+        <InputText class="form-control" @bind-Value="transactionViewModel.Buyer" />
+    </div>
+
+    <div class="mb-3">
+        <label>Seller</label>
+        <InputText class="form-control" @bind-Value="transactionViewModel.Seller" />
+    </div>
+
+    <div class="mb-3">
+        <label>Time</label>
+        <InputDate TValue="DateTime?" class="form-control" @bind-Value="transactionViewModel.Time" />
+    </div>
+
+    <div class="mb-3">
+        <label>Status</label>
+        <InputText class="form-control" @bind-Value="transactionViewModel.Status" />
+    </div>
+
+    <button type="submit" class="btn btn-success">Save</button>
+    <button type="button" class="btn btn-secondary" @onclick="Cancel">Cancel</button>
+
+    @if (!string.IsNullOrEmpty(formError))
+    {
+        <div class="alert alert-danger mt-2">@formError</div>
+    }
+</EditForm>
+
+@code {
+    [Parameter] public int? OrderId { get; set; }
+    [Parameter] public int? ProductId { get; set; }
+
+    [Parameter, SupplyParameterFromQuery(Name = "time")]
+    public string TimeQueryString { get; set; }
+
+    private DateTime? ParsedTime
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(TimeQueryString))
+            {
+                try
+                {
+                    return DateTime.ParseExact(TimeQueryString, "dd-MM-yyyy", CultureInfo.InvariantCulture);
+                }
+                catch
+                {
+                    Console.WriteLine($"Error parsing time '{TimeQueryString}' with format dd-MM-yyyy");
+                    return null;
+                }
+            }
+            return null;
+        }
+    }
+
+    private bool editingMode = false;
+    private TransactionViewModel transactionViewModel = new TransactionViewModel();
+    private List<Product> products;
+    private Product selectedProduct;
+    private int? _selectedProductId;
+    private int? SelectedProductId
+    {
+        get => _selectedProductId;
+        set
+        {
+            if (_selectedProductId != value)
+            {
+                _selectedProductId = value;
+                transactionViewModel.ProductId = value;
+                OnProductChanged();
+            }
+        }
+    }
+
+    private int Quantity
+    {
+        get => transactionViewModel.Quantity;
+        set
+        {
+            if (transactionViewModel.Quantity != value)
+            {
+                transactionViewModel.Quantity = value;
+                RecalculateTotal();
+            }
+        }
+    }
+
+    private string formError = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        products = await ProductService.GetProductsAsync();
+        Console.WriteLine($"[TransactionForm] OrderId: {OrderId}, ProductId: {ProductId}, TimeQueryString: {TimeQueryString}, ParsedTime: {ParsedTime}");
+
+        editingMode = OrderId.HasValue && ProductId.HasValue && ParsedTime.HasValue;
+        if (editingMode)
+        {
+            var transactionEntity = await TransactionService.GetTransactionAsync(OrderId.Value, ProductId.Value, ParsedTime.Value);
+            if (transactionEntity == null)
+            {
+                Console.WriteLine("[TransactionForm] Transaction not found. Switching to Add mode.");
+                editingMode = false;
+                InitializeViewModelForAdd();
+            }
+            else
+            {
+                transactionViewModel = new TransactionViewModel
+                    {
+                        ProductId = transactionEntity.ProductId,
+                        Quantity = transactionEntity.Quantity,
+                        TotalPrice = transactionEntity.TotalPrice,
+                        Buyer = transactionEntity.Buyer,
+                        Seller = transactionEntity.Seller,
+                        Time = transactionEntity.Time,
+                        Status = transactionEntity.Status
+                    };
+                selectedProduct = products.FirstOrDefault(p => p.Id == transactionEntity.ProductId);
+                _selectedProductId = transactionEntity.ProductId;
+            }
+        }
+        else
+        {
+            InitializeViewModelForAdd();
+            Console.WriteLine("[TransactionForm] Add mode activated.");
+        }
+    }
+
+    private void InitializeViewModelForAdd()
+    {
+        transactionViewModel = new TransactionViewModel
+            {
+                Time = DateTime.Now,
+                Quantity = 1,
+                TotalPrice = 0,
+                Buyer = string.Empty,
+                Seller = string.Empty,
+                Status = string.Empty
+            };
+    }
+
+    private void OnProductChanged()
+    {
+        if (transactionViewModel.ProductId.HasValue)
+        {
+            selectedProduct = products.FirstOrDefault(p => p.Id == transactionViewModel.ProductId.Value);
+            RecalculateTotal();
+        }
+    }
+
+    private void RecalculateTotal()
+    {
+        if (selectedProduct != null)
+            transactionViewModel.TotalPrice = selectedProduct.Price * transactionViewModel.Quantity;
+        else
+            transactionViewModel.TotalPrice = 0;
+        StateHasChanged();
+    }
+
+    private void OnQuantityInput(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var newQuantity))
+        {
+            Quantity = newQuantity;
+        }
+    }
+
+    async Task HandleValidSubmit()
+    {
+        formError = string.Empty;
+        Console.WriteLine("HandleValidSubmit called");
+
+        var transactionEntity = new Transaction
+            {
+                ProductId = transactionViewModel.ProductId.Value,
+                Quantity = transactionViewModel.Quantity,
+                TotalPrice = transactionViewModel.TotalPrice,
+                Buyer = transactionViewModel.Buyer,
+                Seller = transactionViewModel.Seller,
+                Time = transactionViewModel.Time.Value,
+                Status = transactionViewModel.Status,
+                OrderId = editingMode ? OrderId.Value : 1
+            };
+
+        if (editingMode)
+            await TransactionService.UpdateTransactionAsync(transactionEntity);
+        else
+            await TransactionService.AddTransactionAsync(transactionEntity);
+
+        NavigationManager.NavigateTo("/transactions");
+    }
+
+    private void HandleInvalidSubmit()
+    {
+        formError = "Please fill in all required fields correctly.";
+        Console.WriteLine("[TransactionForm] Invalid submission.");
+    }
+
+    void Cancel() => NavigationManager.NavigateTo("/transactions");
+}
